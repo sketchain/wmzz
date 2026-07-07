@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { HeightField } from './HeightField';
-import { CHUNK_SIZE, TerrainConfig } from './TerrainConfig';
+import { TerrainConfig } from './TerrainConfig';
 
 const COLOR_SAND = new THREE.Color(0xcfc08a);
 const COLOR_GRASS = new THREE.Color(0x5d8a4a);

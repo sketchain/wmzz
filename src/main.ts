@@ -17,6 +17,9 @@ import { WaterSurface } from '@/terrain/WaterSurface';
 import { TerrainEditor, TerrainEditorToken } from '@/terrain/editing/TerrainEditor';
 import { ChunkStreamingSystem } from '@/terrain/systems/ChunkStreamingSystem';
 import { TerrainEditSystem } from '@/terrain/systems/TerrainEditSystem';
+import { RoadNetwork, RoadNetworkToken } from '@/roads/RoadNetwork';
+import { RoadRenderer, RoadRendererToken } from '@/roads/RoadRenderer';
+import { RoadSyncSystem, RoadToolSystem } from '@/roads/systems/RoadToolSystem';
 import { DebugOverlay } from '@/boot/DebugOverlay';
 
 const log = createLogger('main');
@@ -57,6 +60,19 @@ async function bootstrap(): Promise<void> {
     TerrainEditorToken,
     (c) => new TerrainEditor(c.resolve(TerrainToken)),
   );
+  container.registerFactory(
+    RoadNetworkToken,
+    (c) => new RoadNetwork(c.resolve(TerrainToken).field),
+  );
+  container.registerFactory(
+    RoadRendererToken,
+    (c) =>
+      new RoadRenderer(
+        c.resolve(RendererToken),
+        c.resolve(RoadNetworkToken),
+        c.resolve(TerrainToken).field,
+      ),
+  );
 
   const world = container.resolve(WorldToken);
   const scheduler = container.resolve(SchedulerToken);
@@ -75,7 +91,15 @@ async function bootstrap(): Promise<void> {
   rig.heightAt = (x, z) => terrain.heightAt(x, z);
   picking.groundRaycast = (ray, out) => terrain.field.raycast(ray, out);
 
+  const roads = container.resolve(RoadNetworkToken);
+  roads.onTerrainChanged = (minX, minZ, maxX, maxZ) =>
+    terrain.invalidateRegion(minX, minZ, maxX, maxZ);
+  const roadRenderer = container.resolve(RoadRendererToken);
+  const roadTool = new RoadToolSystem(roads, input, picking, commands, renderer, events);
+  roadTool.terrainHeight = (x, z) => terrain.heightAt(x, z);
+
   scheduler.add(new InputSystem(input));
+  scheduler.add(roadTool);
   scheduler.add(
     new TerrainEditSystem(
       container.resolve(TerrainEditorToken),
@@ -87,12 +111,19 @@ async function bootstrap(): Promise<void> {
   );
   scheduler.add(new CameraControlSystem(rig, input, renderer));
   scheduler.add(new ChunkStreamingSystem(terrain, water, rig));
+  scheduler.add(new RoadSyncSystem(() => roadRenderer.sync()));
   scheduler.add(new RenderSystem(renderer));
 
-  const overlay = new DebugOverlay(app, 'WMZZ City — 阶段3：地形系统');
+  const overlay = new DebugOverlay(app, 'WMZZ City — 阶段4：道路系统');
   let brushLabel = '无 (按1-5选择)';
   events.on('terrain:brushChanged', ({ mode, radius }) => {
     brushLabel = mode ? `${mode} r=${radius.toFixed(0)}m` : '无 (按1-5选择)';
+  });
+  let roadLabel = '无 (按6-0选择)';
+  events.on('road:toolChanged', ({ mode, curved, oneWay }) => {
+    roadLabel = mode
+      ? `${mode}${curved ? ' 曲线' : ''}${oneWay ? ' 单向' : ''}`
+      : '无 (按6-0选择)';
   });
 
   const loop = new GameLoop((dt) => {
@@ -105,11 +136,13 @@ async function bootstrap(): Promise<void> {
       frame: scheduler.frame,
       systems: scheduler.profile,
       extra: {
-        阶段: '3 / 11 (terrain)',
+        阶段: '4 / 11 (roads)',
         后端: renderer.backend,
         区块: `${terrain.loadedChunkCount} (队列 ${terrain.pendingBuilds})`,
+        道路: `${roads.edges.size}边 ${roads.nodes.size}节点`,
         笔刷: brushLabel,
-        操作: '1-5笔刷 [ ]大小 ^Z撤销',
+        工具: roadLabel,
+        操作: '6-0道路 C曲线 V单向 ^Z撤销',
       },
     });
   });
@@ -117,7 +150,7 @@ async function bootstrap(): Promise<void> {
 
   scheduler.start();
   loop.start();
-  log.info('Phase 3 bootstrap complete — terrain streaming');
+  log.info('Phase 4 bootstrap complete — roads ready');
 
   if (import.meta.hot) {
     import.meta.hot.dispose(() => {
