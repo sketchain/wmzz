@@ -1,0 +1,28 @@
+{
+  "name": "wmzz-city",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Web-based Cities: Skylines style 3D city-building simulation game (TypeScript + Three.js + ECS)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "three": "^0.178.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "@types/three": "^0.178.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.1.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
