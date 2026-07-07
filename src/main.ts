@@ -12,14 +12,12 @@ import { PickingService, PickingToken } from '@/engine/picking/PickingService';
 import { InputSystem } from '@/engine/systems/InputSystem';
 import { CameraControlSystem } from '@/engine/systems/CameraControlSystem';
 import { RenderSystem } from '@/engine/systems/RenderSystem';
+import { TerrainService, TerrainToken } from '@/terrain/TerrainService';
+import { WaterSurface } from '@/terrain/WaterSurface';
+import { TerrainEditor, TerrainEditorToken } from '@/terrain/editing/TerrainEditor';
+import { ChunkStreamingSystem } from '@/terrain/systems/ChunkStreamingSystem';
+import { TerrainEditSystem } from '@/terrain/systems/TerrainEditSystem';
 import { DebugOverlay } from '@/boot/DebugOverlay';
-import { ParticleRenderSystem } from '@/boot/ParticleRenderSystem';
-import {
-  LifetimeSystem,
-  MovementSystem,
-  RespawnSystem,
-  spawnParticles,
-} from '@/boot/Phase1Demo';
 
 const log = createLogger('main');
 
@@ -27,8 +25,6 @@ export const WorldToken = createToken<World>('core.world');
 export const SchedulerToken = createToken<Scheduler>('core.scheduler');
 export const CommandStackToken = createToken<CommandStack>('core.commandStack');
 export const GameLoopToken = createToken<GameLoop>('core.gameLoop');
-
-const DEMO_ENTITY_COUNT = 100_000;
 
 async function bootstrap(): Promise<void> {
   const app = document.getElementById('app');
@@ -56,25 +52,49 @@ async function bootstrap(): Promise<void> {
   container.registerFactory(InputToken, (c) => new InputService(c.resolve(RendererToken).canvas));
   container.registerFactory(CameraRigToken, () => new CameraRig());
   container.registerFactory(PickingToken, (c) => new PickingService(c.resolve(RendererToken)));
+  container.registerFactory(TerrainToken, (c) => new TerrainService(c.resolve(RendererToken)));
+  container.registerFactory(
+    TerrainEditorToken,
+    (c) => new TerrainEditor(c.resolve(TerrainToken)),
+  );
 
   const world = container.resolve(WorldToken);
   const scheduler = container.resolve(SchedulerToken);
   const renderer = container.resolve(RendererToken);
   await renderer.init();
+
   const input = container.resolve(InputToken);
   const rig = container.resolve(CameraRigToken);
+  const picking = container.resolve(PickingToken);
+  const terrain = container.resolve(TerrainToken);
+  const commands = container.resolve(CommandStackToken);
+  const events = container.resolve(EventBusToken);
+  const water = new WaterSurface(renderer);
+
+  // Terrain-aware camera + picking.
+  rig.heightAt = (x, z) => terrain.heightAt(x, z);
+  picking.groundRaycast = (ray, out) => terrain.field.raycast(ray, out);
 
   scheduler.add(new InputSystem(input));
+  scheduler.add(
+    new TerrainEditSystem(
+      container.resolve(TerrainEditorToken),
+      input,
+      picking,
+      commands,
+      events,
+    ),
+  );
   scheduler.add(new CameraControlSystem(rig, input, renderer));
-  scheduler.add(new MovementSystem());
-  scheduler.add(new LifetimeSystem());
-  scheduler.add(new RespawnSystem());
-  scheduler.add(new ParticleRenderSystem(renderer, DEMO_ENTITY_COUNT + 1024));
+  scheduler.add(new ChunkStreamingSystem(terrain, water, rig));
   scheduler.add(new RenderSystem(renderer));
 
-  spawnParticles(world, DEMO_ENTITY_COUNT);
+  const overlay = new DebugOverlay(app, 'WMZZ City — 阶段3：地形系统');
+  let brushLabel = '无 (按1-5选择)';
+  events.on('terrain:brushChanged', ({ mode, radius }) => {
+    brushLabel = mode ? `${mode} r=${radius.toFixed(0)}m` : '无 (按1-5选择)';
+  });
 
-  const overlay = new DebugOverlay(app, 'WMZZ City — 阶段2：基础引擎');
   const loop = new GameLoop((dt) => {
     scheduler.frameUpdate(dt);
     overlay.update({
@@ -85,9 +105,11 @@ async function bootstrap(): Promise<void> {
       frame: scheduler.frame,
       systems: scheduler.profile,
       extra: {
-        阶段: '2 / 11 (engine)',
+        阶段: '3 / 11 (terrain)',
         后端: renderer.backend,
-        操作: 'WASD平移 QE旋转 滚轮缩放',
+        区块: `${terrain.loadedChunkCount} (队列 ${terrain.pendingBuilds})`,
+        笔刷: brushLabel,
+        操作: '1-5笔刷 [ ]大小 ^Z撤销',
       },
     });
   });
@@ -95,13 +117,14 @@ async function bootstrap(): Promise<void> {
 
   scheduler.start();
   loop.start();
-  log.info(`Phase 2 bootstrap complete — backend=${renderer.backend}`);
+  log.info('Phase 3 bootstrap complete — terrain streaming');
 
   if (import.meta.hot) {
     import.meta.hot.dispose(() => {
       loop.stop();
       scheduler.dispose();
       overlay.dispose();
+      water.dispose();
       container.dispose();
     });
   }
