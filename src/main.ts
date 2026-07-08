@@ -53,6 +53,12 @@ import { EconomySystem } from '@/simulation/systems/EconomySystem';
 import { SanitationSystem } from '@/simulation/systems/SanitationSystem';
 import { FireSystem } from '@/simulation/systems/FireSystem';
 import { TimeControlSystem } from '@/engine/systems/TimeControlSystem';
+import { PathService, PathServiceToken } from '@/traffic/PathService';
+import { TrafficControl, TrafficControlToken } from '@/traffic/TrafficControl';
+import {
+  TrafficControlSystem,
+  TrafficFlowSystem,
+} from '@/traffic/systems/TrafficSystems';
 import { SaveManager, SaveManagerToken } from '@/persistence/SaveManager';
 import {
   AutoSaveSystem,
@@ -175,6 +181,15 @@ async function bootstrap(): Promise<void> {
   );
   const saves = container.resolve(SaveManagerToken);
 
+  container.registerFactory(PathServiceToken, (c) => new PathService(c.resolve(RoadNetworkToken)));
+  container.registerFactory(
+    TrafficControlToken,
+    (c) => new TrafficControl(c.resolve(RoadNetworkToken)),
+  );
+  const paths = container.resolve(PathServiceToken);
+  const trafficControl = container.resolve(TrafficControlToken);
+  const trafficFlow = new TrafficFlowSystem(roads, paths);
+
   scheduler.add(new InputSystem(input));
   scheduler.add(new TimeControlSystem(scheduler, input));
   scheduler.add(new SaveHotkeySystem(saves, input));
@@ -182,6 +197,8 @@ async function bootstrap(): Promise<void> {
   scheduler.add(
     new ZoneToolSystem(zoneGrid, zoneOverlay, buildingFactory, input, picking, commands, events),
   );
+  scheduler.add(new TrafficControlSystem(trafficControl, paths));
+  scheduler.add(trafficFlow);
   const economy = new EconomySystem(stats, roads, calendar, events);
   const growth = new GrowthSystem(zoneGrid, buildingFactory);
   growth.demandProvider = economy;
@@ -275,6 +292,8 @@ async function bootstrap(): Promise<void> {
     calendar,
     saves,
     environment,
+    paths,
+    trafficControl,
     debugConditions: () => {
       const query = world.query({ all: [Building] });
       const rows: Record<string, unknown>[] = [];
