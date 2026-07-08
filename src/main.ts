@@ -59,6 +59,11 @@ import {
   TrafficControlSystem,
   TrafficFlowSystem,
 } from '@/traffic/systems/TrafficSystems';
+import { CitizenSpawnSystem } from '@/agents/systems/CitizenSpawnSystem';
+import { CitizenScheduleSystem } from '@/agents/systems/CitizenScheduleSystem';
+import { VehicleDrivingSystem } from '@/agents/systems/VehicleDrivingSystem';
+import { VehicleRenderSystem } from '@/agents/systems/VehicleRenderSystem';
+import { Citizen } from '@/agents/components';
 import { SaveManager, SaveManagerToken } from '@/persistence/SaveManager';
 import {
   AutoSaveSystem,
@@ -199,6 +204,14 @@ async function bootstrap(): Promise<void> {
   );
   scheduler.add(new TrafficControlSystem(trafficControl, paths));
   scheduler.add(trafficFlow);
+  const citizenSchedule = new CitizenScheduleSystem(calendar, paths, roads);
+  const vehicleRender = new VehicleRenderSystem(renderer);
+  scheduler.add(new CitizenSpawnSystem(roads));
+  scheduler.add(citizenSchedule);
+  scheduler.add(
+    new VehicleDrivingSystem(roads, trafficControl, trafficFlow, paths, citizenSchedule, rig),
+  );
+  scheduler.add(vehicleRender);
   const economy = new EconomySystem(stats, roads, calendar, events);
   const growth = new GrowthSystem(zoneGrid, buildingFactory);
   growth.demandProvider = economy;
@@ -232,7 +245,7 @@ async function bootstrap(): Promise<void> {
   );
   scheduler.add(new RenderSystem(renderer));
 
-  const overlay = new DebugOverlay(app, 'WMZZ City — 阶段6：城市模拟');
+  const overlay = new DebugOverlay(app, 'WMZZ City — 阶段8：AI市民与车辆');
   let brushLabel = '无 (按1-5选择)';
   events.on('terrain:brushChanged', ({ mode, radius }) => {
     brushLabel = mode ? `${mode} r=${radius.toFixed(0)}m` : '无 (按1-5选择)';
@@ -262,7 +275,7 @@ async function bootstrap(): Promise<void> {
       frame: scheduler.frame,
       systems: scheduler.profile,
       extra: {
-        阶段: '6 / 11 (simulation)',
+        阶段: '8 / 11 (agents)',
         时间: `${calendar.dateLabel} ${calendar.clockLabel} ${calendar.weather} ${calendar.temperature.toFixed(0)}°C`,
         人口: `${stats.population} (失业 ${(stats.unemployment * 100).toFixed(0)}%)`,
         财政: `$${Math.round(stats.treasury).toLocaleString()} (${stats.monthlyIncome >= stats.monthlyExpenses ? '+' : ''}${Math.round(stats.monthlyIncome - stats.monthlyExpenses)}/月)`,
@@ -270,6 +283,7 @@ async function bootstrap(): Promise<void> {
         需求RCI: `${(stats.demandResidential * 100).toFixed(0)}/${(stats.demandCommercial * 100).toFixed(0)}/${(stats.demandIndustrial * 100).toFixed(0)}/${(stats.demandOffice * 100).toFixed(0)}`,
         道路: `${roads.edges.size}边`,
         建筑: `${world.query({ all: [Building] }).size} (${zoneGrid.cells.size}格区划)`,
+        市民: `${world.query({ all: [Citizen] }).size}代理 车辆${vehicleRender.visibleCount}行驶`,
         笔刷: brushLabel,
         道路工具: roadLabel,
         区划工具: zoneLabel,
@@ -338,7 +352,7 @@ async function bootstrap(): Promise<void> {
 
   scheduler.start();
   loop.start();
-  log.info('Phase 6 bootstrap complete — city simulation running');
+  log.info('Phase 8 bootstrap complete — citizens commuting');
 
   if (import.meta.hot) {
     import.meta.hot.dispose(() => {
