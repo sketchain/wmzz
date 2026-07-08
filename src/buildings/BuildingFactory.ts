@@ -1,8 +1,12 @@
 import { createToken } from '@/core/di/ServiceContainer';
 import { NULL_ENTITY, type Entity, type World } from '@/core/ecs';
 import { Transform } from '@/engine/components';
-import type { TerrainService } from '@/terrain/TerrainService';
 import type { RoadNetwork } from '@/roads/RoadNetwork';
+
+/** Structural terrain dependency — keeps the factory testable headlessly. */
+export interface HeightSource {
+  heightAt(x: number, z: number): number;
+}
 import {
   GROWABLES,
   SERVICES,
@@ -30,7 +34,8 @@ export interface BuildingSnapshot {
     edgeId: number;
     buildTicks: number;
   };
-  econ: {
+  /** Absent for service buildings (they carry ServiceBuilding instead). */
+  econ?: {
     capacity: number;
     occupants: number;
     taxBase: number;
@@ -69,7 +74,7 @@ export class BuildingFactory {
   constructor(
     private readonly world: World,
     private readonly zoneGrid: ZoneGrid,
-    private readonly terrain: TerrainService,
+    private readonly terrain: HeightSource,
     private readonly roads: RoadNetwork,
   ) {}
 
@@ -183,7 +188,7 @@ export class BuildingFactory {
     const entity = this.world.createEntity();
     this.world.addComponent(entity, Transform, snap.transform);
     this.world.addComponent(entity, Building, snap.building);
-    this.world.addComponent(entity, BuildingEcon, snap.econ);
+    if (snap.econ) this.world.addComponent(entity, BuildingEcon, snap.econ);
     this.world.addComponent(entity, BuildingMeta, { name: snap.name });
     if (snap.service) {
       this.world.addComponent(entity, ServiceBuilding, snap.service);

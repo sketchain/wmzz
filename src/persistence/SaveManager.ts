@@ -4,8 +4,14 @@ import type { GameEventBus } from '@/core/events/GameEvents';
 import { createLogger } from '@/core/utils/Logger';
 import { GameConfig } from '@/config/GameConfig';
 import type { CameraRig } from '@/engine/camera/CameraRig';
-import type { TerrainService } from '@/terrain/TerrainService';
+import type { HeightField } from '@/terrain/HeightField';
 import type { RoadNetwork, RoadNetworkSnapshot } from '@/roads/RoadNetwork';
+
+/** Structural terrain dependency — keeps saving testable headlessly. */
+export interface TerrainLike {
+  readonly field: HeightField;
+  invalidateAll(): void;
+}
 import type { ZoneGrid } from '@/buildings/ZoneGrid';
 import type { BuildingFactory, BuildingSnapshot } from '@/buildings/BuildingFactory';
 import {
@@ -76,7 +82,7 @@ export class SaveManager {
 
   constructor(
     private readonly world: World,
-    private readonly terrain: TerrainService,
+    private readonly terrain: TerrainLike,
     private readonly roads: RoadNetwork,
     private readonly zoneGrid: ZoneGrid,
     private readonly factory: BuildingFactory,
@@ -88,10 +94,11 @@ export class SaveManager {
 
   collect(): SaveData {
     const buildings: BuildingSnapshot[] = [];
-    const query = this.world.query({ all: [Building, BuildingEcon, Transform] });
+    // Building + Transform only: service buildings carry no BuildingEcon.
+    const query = this.world.query({ all: [Building, Transform] });
     query.forEach((entity) => {
       const building = this.world.read(entity, Building)!;
-      const econ = this.world.read(entity, BuildingEcon)!;
+      const econ = this.world.read(entity, BuildingEcon);
       const transform = this.world.read(entity, Transform)!;
       const service = this.world.hasComponent(entity, ServiceBuilding)
         ? this.world.read(entity, ServiceBuilding)!
