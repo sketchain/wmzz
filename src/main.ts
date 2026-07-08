@@ -27,7 +27,37 @@ import { ZoneToolSystem } from '@/buildings/systems/ZoneToolSystem';
 import { GrowthSystem } from '@/buildings/systems/GrowthSystem';
 import { BuildingRenderSystem } from '@/buildings/systems/BuildingRenderSystem';
 import { ZONE_LABELS, SERVICES } from '@/data/buildingPrototypes';
-import { Building } from '@/buildings/components';
+import {
+  Building,
+  BuildingEcon as BuildingEconDebug,
+  BuildingMeta as BuildingMetaDebug,
+  PowerShortage as PowerShortageDebug,
+  WaterShortage as WaterShortageDebug,
+} from '@/buildings/components';
+import { Transform } from '@/engine/components';
+import { CityStats, CityStatsToken } from '@/simulation/CityStats';
+import { EnvironmentFields, EnvironmentToken } from '@/simulation/EnvironmentFields';
+import {
+  CalendarSystem,
+  CalendarToken,
+  GameCalendar,
+} from '@/simulation/systems/CalendarSystem';
+import {
+  POWER_CONFIG,
+  UtilityGridSystem,
+  WATER_CONFIG,
+} from '@/simulation/systems/UtilityGridSystem';
+import { EnvironmentSystem } from '@/simulation/systems/EnvironmentSystem';
+import { PopulationSystem } from '@/simulation/systems/PopulationSystem';
+import { EconomySystem } from '@/simulation/systems/EconomySystem';
+import { SanitationSystem } from '@/simulation/systems/SanitationSystem';
+import { FireSystem } from '@/simulation/systems/FireSystem';
+import { TimeControlSystem } from '@/engine/systems/TimeControlSystem';
+import { SaveManager, SaveManagerToken } from '@/persistence/SaveManager';
+import {
+  AutoSaveSystem,
+  SaveHotkeySystem,
+} from '@/persistence/systems/PersistenceSystems';
 import { DebugOverlay } from '@/boot/DebugOverlay';
 
 const log = createLogger('main');
@@ -121,12 +151,50 @@ async function bootstrap(): Promise<void> {
   const buildingFactory = container.resolve(BuildingFactoryToken);
   const zoneOverlay = new ZoneOverlay(renderer, zoneGrid, terrain);
 
+  // ── Simulation services ──
+  container.registerFactory(CityStatsToken, () => new CityStats());
+  container.registerFactory(EnvironmentToken, () => new EnvironmentFields());
+  container.registerFactory(CalendarToken, () => new GameCalendar());
+  const stats = container.resolve(CityStatsToken);
+  const environment = container.resolve(EnvironmentToken);
+  const calendar = container.resolve(CalendarToken);
+  container.registerFactory(
+    SaveManagerToken,
+    (c) =>
+      new SaveManager(
+        c.resolve(WorldToken),
+        c.resolve(TerrainToken),
+        c.resolve(RoadNetworkToken),
+        c.resolve(ZoneGridToken),
+        c.resolve(BuildingFactoryToken),
+        c.resolve(CityStatsToken),
+        c.resolve(CalendarToken),
+        c.resolve(CameraRigToken),
+        c.resolve(EventBusToken),
+      ),
+  );
+  const saves = container.resolve(SaveManagerToken);
+
   scheduler.add(new InputSystem(input));
+  scheduler.add(new TimeControlSystem(scheduler, input));
+  scheduler.add(new SaveHotkeySystem(saves, input));
   scheduler.add(roadTool);
   scheduler.add(
     new ZoneToolSystem(zoneGrid, zoneOverlay, buildingFactory, input, picking, commands, events),
   );
-  scheduler.add(new GrowthSystem(zoneGrid, buildingFactory));
+  const economy = new EconomySystem(stats, roads, calendar, events);
+  const growth = new GrowthSystem(zoneGrid, buildingFactory);
+  growth.demandProvider = economy;
+  scheduler.add(new CalendarSystem(calendar, renderer, events));
+  scheduler.add(new UtilityGridSystem(POWER_CONFIG, roads, stats));
+  scheduler.add(new UtilityGridSystem(WATER_CONFIG, roads, stats));
+  scheduler.add(new EnvironmentSystem(environment, roads, stats));
+  scheduler.add(new PopulationSystem(stats, environment));
+  scheduler.add(new SanitationSystem(stats));
+  scheduler.add(new FireSystem(environment, buildingFactory, events));
+  scheduler.add(economy);
+  scheduler.add(growth);
+  scheduler.add(new AutoSaveSystem(saves));
   scheduler.add(new BuildingRenderSystem(renderer, buildingFactory));
   scheduler.add(
     new TerrainEditSystem(
@@ -147,7 +215,7 @@ async function bootstrap(): Promise<void> {
   );
   scheduler.add(new RenderSystem(renderer));
 
-  const overlay = new DebugOverlay(app, 'WMZZ City — 阶段5：建筑与区划');
+  const overlay = new DebugOverlay(app, 'WMZZ City — 阶段6：城市模拟');
   let brushLabel = '无 (按1-5选择)';
   events.on('terrain:brushChanged', ({ mode, radius }) => {
     brushLabel = mode ? `${mode} r=${radius.toFixed(0)}m` : '无 (按1-5选择)';
@@ -177,15 +245,18 @@ async function bootstrap(): Promise<void> {
       frame: scheduler.frame,
       systems: scheduler.profile,
       extra: {
-        阶段: '5 / 11 (buildings)',
-        后端: renderer.backend,
-        区块: `${terrain.loadedChunkCount} (队列 ${terrain.pendingBuilds})`,
-        道路: `${roads.edges.size}边 ${roads.nodes.size}节点`,
+        阶段: '6 / 11 (simulation)',
+        时间: `${calendar.dateLabel} ${calendar.clockLabel} ${calendar.weather} ${calendar.temperature.toFixed(0)}°C`,
+        人口: `${stats.population} (失业 ${(stats.unemployment * 100).toFixed(0)}%)`,
+        财政: `$${Math.round(stats.treasury).toLocaleString()} (${stats.monthlyIncome >= stats.monthlyExpenses ? '+' : ''}${Math.round(stats.monthlyIncome - stats.monthlyExpenses)}/月)`,
+        幸福: `${(stats.happiness * 100).toFixed(0)}% 电${(stats.poweredRatio * 100).toFixed(0)}% 水${(stats.wateredRatio * 100).toFixed(0)}%`,
+        需求RCI: `${(stats.demandResidential * 100).toFixed(0)}/${(stats.demandCommercial * 100).toFixed(0)}/${(stats.demandIndustrial * 100).toFixed(0)}/${(stats.demandOffice * 100).toFixed(0)}`,
+        道路: `${roads.edges.size}边`,
         建筑: `${world.query({ all: [Building] }).size} (${zoneGrid.cells.size}格区划)`,
         笔刷: brushLabel,
         道路工具: roadLabel,
         区划工具: zoneLabel,
-        操作: 'Z区划 B设施 6-0道路 ^Z撤销',
+        操作: 'Z区划 B设施 6-0路 空格暂停 F5存 F9读',
       },
     });
   });
@@ -200,11 +271,55 @@ async function bootstrap(): Promise<void> {
     zoneGrid,
     buildingFactory,
     terrain,
+    stats,
+    calendar,
+    saves,
+    environment,
+    debugConditions: () => {
+      const query = world.query({ all: [Building] });
+      const rows: Record<string, unknown>[] = [];
+      query.forEach((entity) => {
+        const b = world.read(entity, Building)!;
+        const econ = world.read(entity, BuildingEconDebug);
+        if (!econ) return;
+        const tf = world.read(entity, Transform)!;
+        rows.push({
+          zone: b.zone,
+          uc: b.buildTicks > 0,
+          cond: Math.round(econ.condition * 100) / 100,
+          lv: Math.round(econ.landValue * 100) / 100,
+          occ: econ.occupants,
+          noPower: world.hasComponent(entity, PowerShortageDebug),
+          noWater: world.hasComponent(entity, WaterShortageDebug),
+          x: Math.round(tf.x),
+          z: Math.round(tf.z),
+          pollution: Math.round(environment.pollutionAt(tf.x, tf.z) * 100) / 100,
+          noise: Math.round(environment.noiseAt(tf.x, tf.z) * 100) / 100,
+          crime: Math.round(environment.crimeAt(tf.x, tf.z) * 100) / 100,
+          lvField: Math.round(environment.landValueAt(tf.x, tf.z) * 100) / 100,
+        });
+      });
+      return rows;
+    },
+    debugServices: () => {
+      const query = world.query({ all: [Building] });
+      const out: Record<string, unknown>[] = [];
+      query.forEach((entity) => {
+        const b = world.read(entity, Building)!;
+        if (b.zone !== 0) return;
+        out.push({
+          name: world.getObject(entity, BuildingMetaDebug)?.name,
+          edgeId: b.edgeId,
+          buildTicks: b.buildTicks,
+        });
+      });
+      return out;
+    },
   };
 
   scheduler.start();
   loop.start();
-  log.info('Phase 5 bootstrap complete — zoning & buildings ready');
+  log.info('Phase 6 bootstrap complete — city simulation running');
 
   if (import.meta.hot) {
     import.meta.hot.dispose(() => {

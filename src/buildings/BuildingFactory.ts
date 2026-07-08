@@ -12,12 +12,47 @@ import {
   type ZoneId,
 } from '@/data/buildingPrototypes';
 import {
+  Abandoned,
   Building,
   BuildingEcon,
   BuildingMeta,
   ServiceBuilding,
   UnderConstruction,
 } from './components';
+
+export interface BuildingSnapshot {
+  transform: { x: number; y: number; z: number; rot: number; scale: number };
+  building: {
+    zone: number;
+    level: number;
+    cellX: number;
+    cellZ: number;
+    edgeId: number;
+    buildTicks: number;
+  };
+  econ: {
+    capacity: number;
+    occupants: number;
+    taxBase: number;
+    powerDemand: number;
+    waterDemand: number;
+    landValue: number;
+    pollution: number;
+    noise: number;
+    condition: number;
+  };
+  service?: {
+    serviceIndex: number;
+    radius: number;
+    jobs: number;
+    upkeep: number;
+    power: number;
+    water: number;
+  };
+  name: string;
+  underConstruction: boolean;
+  abandoned: boolean;
+}
 import { ZoneGrid, type ZoneCell } from './ZoneGrid';
 
 export const CONSTRUCTION_TICKS = 90; // 3 s of sim at 30 Hz per level-1 build
@@ -88,7 +123,7 @@ export class BuildingFactory {
       level: 1,
       cellX: ZoneGrid.worldToCell(x),
       cellZ: ZoneGrid.worldToCell(z),
-      edgeId: this.roads.snapEdge(x, z, 40)?.edge.id ?? 0,
+      edgeId: this.roads.snapEdge(x, z, 70)?.edge.id ?? 0,
       buildTicks: CONSTRUCTION_TICKS,
     });
     this.world.addComponent(entity, ServiceBuilding, {
@@ -141,6 +176,25 @@ export class BuildingFactory {
     this.world.addComponent(entity, UnderConstruction);
     this.version++;
     return true;
+  }
+
+  /** Reassemble a building from a save snapshot with exact state. */
+  restoreBuilding(snap: BuildingSnapshot): Entity {
+    const entity = this.world.createEntity();
+    this.world.addComponent(entity, Transform, snap.transform);
+    this.world.addComponent(entity, Building, snap.building);
+    this.world.addComponent(entity, BuildingEcon, snap.econ);
+    this.world.addComponent(entity, BuildingMeta, { name: snap.name });
+    if (snap.service) {
+      this.world.addComponent(entity, ServiceBuilding, snap.service);
+    }
+    if (snap.underConstruction) this.world.addComponent(entity, UnderConstruction);
+    if (snap.abandoned) this.world.addComponent(entity, Abandoned);
+    if (snap.building.zone !== 0) {
+      this.zoneGrid.setBuilding(snap.building.cellX, snap.building.cellZ, entity);
+    }
+    this.version++;
+    return entity;
   }
 
   /** Buildings face the road they front. */

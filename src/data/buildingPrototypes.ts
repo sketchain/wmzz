@@ -55,7 +55,7 @@ export const GROWABLES: Record<Exclude<ZoneId, 0>, GrowableSpec> = {
       { capacity: 90, height: 40, tax: 300, power: 45, water: 45 },
     ],
     pollution: 0,
-    noise: 0.5,
+    noise: 0.2,
     baseColor: 0x8fbf6f,
   },
   [ZONE_COMMERCIAL]: {
@@ -69,7 +69,7 @@ export const GROWABLES: Record<Exclude<ZoneId, 0>, GrowableSpec> = {
       { capacity: 110, height: 36, tax: 380, power: 60, water: 26 },
     ],
     pollution: 0.2,
-    noise: 1.2,
+    noise: 0.8,
     baseColor: 0x6f9fd8,
   },
   [ZONE_INDUSTRIAL]: {

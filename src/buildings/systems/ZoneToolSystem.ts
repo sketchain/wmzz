@@ -138,6 +138,7 @@ export class ZoneToolSystem extends System {
       this.commands.execute(
         new PlaceServiceCommand(this.factory, kind, this.hit.x, this.hit.z, 0),
       );
+      this.events.emit('economy:spend', { amount: SERVICES[kind].cost, reason: kind });
     }
   }
 

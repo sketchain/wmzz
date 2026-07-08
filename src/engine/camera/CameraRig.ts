@@ -57,6 +57,15 @@ export class CameraRig {
     this.goalTarget.set(x, 0, z);
   }
 
+  /** Hard-set the full pose (save loading) — no smoothing. */
+  teleport(x: number, z: number, yaw: number, pitch: number, distance: number): void {
+    this.goalTarget.set(x, 0, z);
+    this.target.copy(this.goalTarget);
+    this.goalYaw = this.yaw = yaw;
+    this.goalPitch = this.pitch = pitch;
+    this.goalDistance = this.distance = distance;
+  }
+
   /** Pan speed scales with zoom so screen-space speed feels constant. */
   get panSpeed(): number {
     return this.goalDistance * 0.9;

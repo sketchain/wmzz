@@ -133,6 +133,29 @@ export class ZoneGrid {
     }
   }
 
+  /** Persistence: cells without their building links (relinked on load). */
+  serialize(): [number, number, number, number][] {
+    const out: [number, number, number, number][] = [];
+    for (const cell of this.cells.values()) {
+      out.push([cell.cx, cell.cz, cell.zone, cell.edgeId]);
+    }
+    return out;
+  }
+
+  deserialize(cells: [number, number, number, number][]): void {
+    this.cells.clear();
+    for (const [cx, cz, zone, edgeId] of cells) {
+      this.cells.set(cellKey(cx, cz), {
+        cx,
+        cz,
+        zone: zone as ZoneId,
+        edgeId,
+        building: NULL_ENTITY,
+      });
+    }
+    this.version++;
+  }
+
   /** Sample up to `max` vacant zoned cells (deterministic order). */
   collectVacant(max: number, out: ZoneCell[]): void {
     out.length = 0;

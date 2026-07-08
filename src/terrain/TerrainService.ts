@@ -119,6 +119,11 @@ export class TerrainService implements Disposable {
     }
   }
 
+  /** Rebuild every loaded chunk (save loading replaced the edit layers). */
+  invalidateAll(): void {
+    for (const chunk of this.chunks.values()) chunk.dirty = true;
+  }
+
   /** Mark chunks intersecting a world-space rectangle as needing rebuild. */
   invalidateRegion(minX: number, minZ: number, maxX: number, maxZ: number): void {
     const c0x = Math.floor((minX - 2) / CHUNK_SIZE);

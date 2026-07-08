@@ -62,6 +62,22 @@ export interface NetworkChange {
   terrainEdits: { key: number; before: number | undefined; after: number | undefined }[];
 }
 
+export interface SerializedEdge {
+  id: number;
+  a: number;
+  b: number;
+  kind: RoadKind;
+  oneWay: boolean;
+  control: { x: number; z: number } | null;
+}
+
+export interface RoadNetworkSnapshot {
+  nodes: [number, number, number][];
+  edges: SerializedEdge[];
+  nextNodeId: number;
+  nextEdgeId: number;
+}
+
 const HASH_CELL = 48;
 
 function hashKey(x: number, z: number): number {
@@ -635,6 +651,51 @@ export class RoadNetwork {
   /** Estimated build cost of a prospective segment. */
   estimateCost(lengthMeters: number, kind: RoadKind): number {
     return Math.round(lengthMeters * ROAD_PROFILES[kind].costPerMeter);
+  }
+
+  // ── Persistence ─────────────────────────────────────────────────────────
+
+  serialize(): RoadNetworkSnapshot {
+    const nodes: [number, number, number][] = [];
+    for (const node of this.nodes.values()) nodes.push([node.id, node.x, node.z]);
+    const edges: SerializedEdge[] = [];
+    for (const edge of this.edges.values()) {
+      edges.push({
+        id: edge.id,
+        a: edge.a,
+        b: edge.b,
+        kind: edge.kind,
+        oneWay: edge.oneWay,
+        control: edge.control ? { x: edge.control.x, z: edge.control.z } : null,
+      });
+    }
+    return { nodes, edges, nextNodeId: this.nextNodeId, nextEdgeId: this.nextEdgeId };
+  }
+
+  deserialize(snapshot: RoadNetworkSnapshot): void {
+    this.clear();
+    for (const [id, x, z] of snapshot.nodes) this.restoreNode(id, x, z);
+    for (const edge of snapshot.edges) {
+      this.restoreEdge(edge.id, {
+        a: edge.a,
+        b: edge.b,
+        kind: edge.kind,
+        oneWay: edge.oneWay,
+        control: edge.control,
+      });
+    }
+    this.nextNodeId = snapshot.nextNodeId;
+    this.nextEdgeId = snapshot.nextEdgeId;
+    this.version++;
+  }
+
+  /** Remove every node and edge (load path). */
+  clear(): void {
+    for (const edge of [...this.edges.values()]) this.deleteEdge(edge);
+    for (const node of [...this.nodes.values()]) this.deleteNode(node);
+    this.rememberedEdges.clear();
+    this.rememberedNodes.clear();
+    this.version++;
   }
 }
 
