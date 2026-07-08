@@ -48,6 +48,14 @@ export class DebugOverlay {
     parent.appendChild(this.root);
   }
 
+  setVisible(visible: boolean): void {
+    this.root.style.display = visible ? '' : 'none';
+  }
+
+  get isVisible(): boolean {
+    return this.root.style.display !== 'none';
+  }
+
   /** Throttled to ~5 updates/s so the overlay itself stays free. */
   update(stats: OverlayStats): void {
     const now = performance.now();

@@ -69,6 +69,15 @@ import {
   AutoSaveSystem,
   SaveHotkeySystem,
 } from '@/persistence/systems/PersistenceSystems';
+import { UiShell } from '@/ui/UiShell';
+import { InfoBar } from '@/ui/panels/InfoBar';
+import { ToolBar } from '@/ui/panels/ToolBar';
+import { BudgetWindow } from '@/ui/panels/BudgetWindow';
+import { StatsWindow } from '@/ui/panels/StatsWindow';
+import { InspectorWindow } from '@/ui/panels/InspectorWindow';
+import { MiniMap } from '@/ui/panels/MiniMap';
+import { OverlayRenderer } from '@/ui/OverlayRenderer';
+import { UiSystem } from '@/ui/systems/UiSystem';
 import { DebugOverlay } from '@/boot/DebugOverlay';
 
 const log = createLogger('main');
@@ -226,6 +235,20 @@ async function bootstrap(): Promise<void> {
   scheduler.add(growth);
   scheduler.add(new AutoSaveSystem(saves));
   scheduler.add(new BuildingRenderSystem(renderer, buildingFactory));
+
+  // ── Player UI ──
+  const uiShell = new UiShell(app);
+  const overlayRenderer = new OverlayRenderer(renderer, terrain, roads, environment, world);
+  const uiPanels = {
+    infoBar: new InfoBar(uiShell, stats, calendar, scheduler),
+    toolBar: new ToolBar(uiShell, events),
+    budget: new BudgetWindow(uiShell, stats, economy),
+    stats: new StatsWindow(uiShell, stats),
+    inspector: new InspectorWindow(uiShell, world),
+    miniMap: new MiniMap(uiShell, terrain, roads, world, rig),
+    overlay: overlayRenderer,
+  };
+  scheduler.add(new UiSystem(uiPanels, input, picking));
   scheduler.add(
     new TerrainEditSystem(
       container.resolve(TerrainEditorToken),
@@ -245,7 +268,14 @@ async function bootstrap(): Promise<void> {
   );
   scheduler.add(new RenderSystem(renderer));
 
-  const overlay = new DebugOverlay(app, 'WMZZ City — 阶段8：AI市民与车辆');
+  const overlay = new DebugOverlay(app, 'WMZZ City — 调试 (F3)');
+  overlay.setVisible(false);
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'F3') {
+      e.preventDefault();
+      overlay.setVisible(!overlay.isVisible);
+    }
+  });
   let brushLabel = '无 (按1-5选择)';
   events.on('terrain:brushChanged', ({ mode, radius }) => {
     brushLabel = mode ? `${mode} r=${radius.toFixed(0)}m` : '无 (按1-5选择)';
