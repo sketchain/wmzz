@@ -1,5 +1,8 @@
 import * as THREE from 'three';
-import { WebGPURenderer } from 'three/webgpu';
+import { PostProcessing, WebGPURenderer } from 'three/webgpu';
+import { pass } from 'three/tsl';
+import { bloom } from 'three/addons/tsl/display/BloomNode.js';
+import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { createLogger } from '@/core/utils/Logger';
 import { createToken, type Disposable } from '@/core/di/ServiceContainer';
 import { GameConfig } from '@/config/GameConfig';
@@ -23,6 +26,7 @@ export class RendererService implements Disposable {
   readonly ambient: THREE.HemisphereLight;
 
   private resizeObserver?: ResizeObserver;
+  private postProcessing: PostProcessing | null = null;
   backend: 'webgpu' | 'webgl2' = 'webgl2';
 
   constructor(private readonly host: HTMLElement) {
@@ -81,10 +85,29 @@ export class RendererService implements Disposable {
     this.applySize();
     this.resizeObserver = new ResizeObserver(() => this.applySize());
     this.resizeObserver.observe(this.host);
+
+    if (GameConfig.rendering.postProcessing) {
+      try {
+        // TSL post chain works on both backends: scene → bloom → FXAA.
+        // Tone mapping/color space are applied by PostProcessing's output.
+        const scenePass = pass(this.scene, this.camera);
+        const bloomed = scenePass.add(bloom(scenePass, 0.25, 0.4, 0.85));
+        this.postProcessing = new PostProcessing(this.renderer);
+        this.postProcessing.outputNode = fxaa(bloomed);
+        log.info('post-processing enabled (bloom + FXAA)');
+      } catch (error) {
+        log.warn('post-processing unavailable, using direct render', error);
+        this.postProcessing = null;
+      }
+    }
   }
 
   render(): void {
-    this.renderer.render(this.scene, this.camera);
+    if (this.postProcessing) {
+      this.postProcessing.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   private applySize(): void {

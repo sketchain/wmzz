@@ -153,6 +153,9 @@ export class TerrainService implements Disposable {
     const previous = this.chunks.get(key);
     const geometry = buildChunkGeometry(this.field, cx, cz, lodStep);
 
+    // Distant (coarse-LOD) chunks skip trees entirely: at that range the
+    // forest is sub-pixel noise, and dropping it saves hundreds of draws.
+    const wantTrees = lodStep < 4;
     if (previous) {
       previous.mesh.geometry.dispose();
       previous.mesh.geometry = geometry;
@@ -161,8 +164,9 @@ export class TerrainService implements Disposable {
       if (previous.trees) {
         this.group.remove(previous.trees);
         previous.trees.dispose();
+        previous.trees = null;
       }
-      previous.trees = this.attachTrees(cx, cz);
+      if (wantTrees) previous.trees = this.attachTrees(cx, cz);
       return;
     }
 
@@ -177,7 +181,7 @@ export class TerrainService implements Disposable {
       cz,
       lodStep,
       mesh,
-      trees: this.attachTrees(cx, cz),
+      trees: wantTrees ? this.attachTrees(cx, cz) : null,
       dirty: false,
     });
   }

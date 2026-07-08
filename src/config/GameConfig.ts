@@ -23,6 +23,8 @@ export const GameConfig = {
     farPlane: 4000,
     /** Prefer WebGPU, transparently fall back to WebGL2 (Phase 2). */
     preferWebGPU: true,
+    /** Bloom + FXAA post chain (TSL, both backends). */
+    postProcessing: true,
   },
   persistence: {
     databaseName: 'wmzz-city',
